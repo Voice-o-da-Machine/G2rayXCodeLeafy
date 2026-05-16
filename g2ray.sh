@@ -422,6 +422,11 @@ while true; do
 			echo -e "  ${GREEN}📱 Mobile Config saved to:${NC}"
 			echo -e "  ${WHITE}${MOBILE_CONFIG_FILE}${NC}"
 			echo -e "  ${DIM}Open that file and copy the link directly into your mobile app.${NC}"
+			echo -e "  ${YELLOW}──────────────────────────────────────────────${NC}"
+			echo -e "  ${GREEN}🚀 Want Faster Speeds?${NC}"
+			echo -e "  ${WHITE}To get more IPs for your config, go to our generator:${NC}"
+			echo -e "  ${GREEN}👉 https://code-leafy.github.io/NetLeafy/${NC}"
+			echo -e "  ${DIM}(Select 'G2ray' and paste your config there)${NC}"
 			echo -e "  ${YELLOW}──────────────────────────────────────────────${NC}\n"
 			read -rp "  Press Enter to return..."
 			;;
