@@ -63,7 +63,7 @@ draw_logo() {
     echo " ██║   ██║██╔═══╝ ██╔══██╗██╔══██║  ╚██╔╝  "
     echo " ╚██████╔╝███████╗██║  ██║██║  ██║   ██║   "
     echo "  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   "
-    echo -e "${NC}${WHITE}  G2ray Panel | Made By CodeLeafy${NC}\n"
+    echo -e "${NC}${WHITE}  G2ray Panel v1.2.7 | Made By CodeLeafy${NC}\n"
 }
 
 refresh_screen() {
@@ -114,7 +114,7 @@ ensure_codespace_port_public() {
 
 # ==================== PERSISTENT STATS: DATA USAGE ====================
 save_xray_stats() {
-    pgrep -f "$XRAY_BIN run" >/dev/null 2>&1 || return 0
+    pgrep -x "xray" >/dev/null 2>&1 || pgrep -f "$XRAY_BIN run" >/dev/null 2>&1 || return 0
 
     local STATS SESSION_DOWN SESSION_UP BASELINE_DOWN BASELINE_UP
     local SAVED_DOWN SAVED_UP DELTA_DOWN DELTA_UP
@@ -158,7 +158,7 @@ get_data_usage() {
     SAVED_UP=$(jq -r '.up // 0' "$SAVED_BYTES_FILE" 2>/dev/null || echo 0)
 
     SESSION_DOWN=0; SESSION_UP=0
-    if pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
+    if pgrep -x "xray" >/dev/null 2>&1 || pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
         STATS=$(sudo timeout 3 "$XRAY_BIN" api statsquery -server=127.0.0.1:10085 2>/dev/null || echo "")
         if [ -n "$STATS" ]; then
             FRESH_DOWN=$(echo "$STATS" | grep -A 1 'downlink' | grep 'value' | \
@@ -206,14 +206,16 @@ save_session_uptime() {
 # ==================== ENGINE ====================
 stop_xray() {
     save_xray_stats 2>/dev/null || true
-    if pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
-        sudo pkill -f "$XRAY_BIN run" 2>/dev/null || true
-        sleep 0.5
-        sudo pkill -9 -f "$XRAY_BIN run" 2>/dev/null || true
-    fi
+    sudo pkill -f "$XRAY_BIN run" 2>/dev/null || true
+    sudo pkill -x "xray" 2>/dev/null || true
+    sleep 0.5
+    sudo pkill -9 -f "$XRAY_BIN run" 2>/dev/null || true
+    sudo pkill -9 -x "xray" 2>/dev/null || true
     if command -v fuser >/dev/null 2>&1; then
         sudo fuser -k -9 ${XRAY_PORT}/tcp 2>/dev/null || true
+        sudo fuser -k -9 10085/tcp 2>/dev/null || true
     fi
+    sleep 0.5
     return 0
 }
 
@@ -272,14 +274,8 @@ _keepalive_loop() {
         ensure_codespace_port_public >/dev/null 2>&1 || true
 
         if ! sudo timeout 3 "$XRAY_BIN" api statsquery -server=127.0.0.1:10085 >/dev/null 2>&1; then
-            if ! pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
-                start_xray >/dev/null 2>&1 || true
-                sleep 3 || true
-            else
-                stop_xray >/dev/null 2>&1 || true
-                start_xray >/dev/null 2>&1 || true
-                sleep 3 || true
-            fi
+            start_xray >/dev/null 2>&1 || true
+            sleep 3 || true
             ensure_codespace_port_public >/dev/null 2>&1 || true
         fi
 
@@ -500,8 +496,7 @@ generate_link() {
     UUID=$(cat "$UUID_FILE" 2>/dev/null || echo "")
     [ -z "$UUID" ] && { echo ""; return 1; }
     DOMAIN="$PORT_DOMAIN"
-    PUBLIC_IP=$(curl -s --max-time 5 https://ipinfo.io/ip < /dev/null 2>/dev/null || echo "94.130.50.12")
-    [ -z "$PUBLIC_IP" ] && PUBLIC_IP="94.130.50.12"
+    PUBLIC_IP="94.130.50.12"
     echo "vless://${UUID}@${PUBLIC_IP}:${XRAY_PORT}?encryption=none&security=tls&sni=${DOMAIN}&fp=chrome&alpn=h2&insecure=1&allowInsecure=1&type=xhttp&host=${DOMAIN}&path=%2F&mode=packet-up#G2rayXCodeLeafy"
 }
 
@@ -521,7 +516,7 @@ show_resource_stats() {
     echo -e "  ${GREEN}📊 Resource Statistics${NC}"
     echo -e "  ${GREEN}──────────────────────────────────────────────${NC}"
     local XRAY_PID CPU MEM_KB MEM_MB
-    XRAY_PID=$(pgrep -f "$XRAY_BIN run" | head -1 || true)
+    XRAY_PID=$(pgrep -x "xray" | head -1 || pgrep -f "$XRAY_BIN run" | head -1 || true)
     if [ -n "$XRAY_PID" ]; then
         CPU=0; MEM_KB=0
         read -r CPU MEM_KB <<< "$(ps -p "$XRAY_PID" -o %cpu,rss --no-headers 2>/dev/null || echo "0 0")" || true
@@ -669,15 +664,13 @@ force_reconnect() {
 # ==================== SILENT START ====================
 if [ "${1:-}" = "--silent-start" ]; then
     if [ -f "$CONFIG_FILE" ]; then
-        if ! pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
-            start_xray
-            wait_for_port >/dev/null 2>&1
-        fi
+        start_xray >/dev/null 2>&1
+        wait_for_port >/dev/null 2>&1
         ensure_codespace_port_public
     fi
     if ! keepalive_status >/dev/null 2>&1; then
         _interval=$(cat "$KEEPALIVE_CONF" 2>/dev/null || echo 60)
-        start_keepalive "$_interval"
+        start_keepalive "$_interval" >/dev/null 2>&1
     fi
     exit 0
 fi
@@ -712,13 +705,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 else
     refresh_screen
-    if ! pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
-        echo -ne "  ${DIM}Starting engine...${NC} "
-        start_xray
-        wait_for_port >/dev/null 2>&1 && echo -e "${GREEN}OK${NC}" || echo -e "${RED}WARN${NC}"
-    else
-        echo -e "  ${GREEN}Engine already running, verifying connection...${NC}"
-    fi
+    echo -ne "  ${DIM}Restarting engine for fresh session...${NC} "
+    start_xray >/dev/null 2>&1
+    wait_for_port >/dev/null 2>&1 && echo -e "${GREEN}OK${NC}" || echo -e "${RED}WARN${NC}"
 
     ensure_codespace_port_public
 
@@ -734,7 +723,7 @@ fi
 while true; do
     refresh_screen
 
-    if pgrep -f "$XRAY_BIN run" > /dev/null 2>&1; then
+    if pgrep -x "xray" >/dev/null 2>&1 || pgrep -f "$XRAY_BIN run" > /dev/null 2>&1; then
         _STATUS="${GREEN}▶ RUNNING${NC}"
     else
         _STATUS="${RED}■ STOPPED${NC}"
@@ -836,7 +825,7 @@ while true; do
 
         3)
             refresh_screen
-            if pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
+            if pgrep -x "xray" >/dev/null 2>&1 || pgrep -f "$XRAY_BIN run" >/dev/null 2>&1; then
                 echo -e "  ${WHITE}Engine is already running.${NC}"
             else
                 start_xray
@@ -885,7 +874,6 @@ while true; do
                 echo -e "  Upload (TX):    ${WHITE}$(format_bytes "$TOTAL_UP")${NC}"
                 echo -e "  Total Traffic:  ${GREEN}$(format_bytes "$TOTAL")${NC}"
                 echo -e "  ────────────────────────────────────────"
-                echo -e "  ${DIM}Includes traffic from all previous sessions.${NC}"
             fi
             echo ""
             read -rp "  Press Enter to return..."
